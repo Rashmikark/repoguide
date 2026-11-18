@@ -1,5 +1,5 @@
 import psycopg
-
+from backend.app.ingest.search_text import build_search_text
 from backend.app.ingest.chunker import Chunk
 from backend.app.ingest.embedder import chunk_embedding_text, embed_texts
 from backend.app.ingest.repo_loader import LoadedRepo, SourceFile
@@ -37,9 +37,12 @@ def save_repo(conn: psycopg.Connection, repo: LoadedRepo,
         with conn.cursor() as cur:
             cur.executemany(
                 "INSERT INTO chunks (repo_id, file_id, path, start_line, end_line, "
-                "kind, symbol, content) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-                [(repo_id, file_id, c.path, c.start_line, c.end_line, c.kind,
-                  c.symbol, c.content.replace("\x00", "")) for c in chunks],
+                "kind, symbol, content, search_text) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                [(repo_id, file_id, c.path, c.start_line, c.end_line, c.kind, c.symbol,
+                  c.content.replace("\x00", ""),
+                  build_search_text(c.path, c.symbol, c.content.replace("\x00", "")))
+                 for c in chunks],
             )
     conn.commit()
     return repo_id

@@ -43,3 +43,15 @@ CREATE INDEX IF NOT EXISTS chunks_repo_idx
 
 CREATE INDEX IF NOT EXISTS chunks_embedding_idx
     ON chunks USING hnsw (embedding vector_cosine_ops);
+
+
+
+
+-- Step 7: keyword search
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS search_text TEXT;
+
+ALTER TABLE chunks ADD COLUMN IF NOT EXISTS search_tsv tsvector
+    GENERATED ALWAYS AS (to_tsvector('english', coalesce(search_text, ''))) STORED;
+
+CREATE INDEX IF NOT EXISTS chunks_search_idx
+    ON chunks USING gin (search_tsv);
