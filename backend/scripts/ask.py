@@ -6,15 +6,16 @@ import psycopg
 
 from backend.app.config import settings
 from backend.app.ingest.repo_loader import parse_github_url
-from backend.app.retrieval.hybrid_search import hybrid_search
+from backend.app.retrieval.hybrid_search import CANDIDATES, hybrid_search
 from backend.app.retrieval.keyword_search import keyword_search, keyword_terms
+from backend.app.retrieval.rerank import rerank
 from backend.app.retrieval.vector_search import embed_query, vector_search
 
 parser = argparse.ArgumentParser(description="Search an indexed repo")
 parser.add_argument("url")
 parser.add_argument("question")
 parser.add_argument("--k", type=int, default=5)
-parser.add_argument("--mode", choices=["vector", "keyword", "hybrid"], default="vector")
+parser.add_argument("--mode", choices=["vector", "keyword", "hybrid", "rerank"], default="vector")
 args = parser.parse_args()
 
 owner, name = parse_github_url(args.url)
@@ -37,14 +38,26 @@ with psycopg.connect(settings.database_url) as conn:
         t1 = time.perf_counter()
         if args.mode == "vector":
             hits = vector_search(conn, row[0], qvec, args.k)
-        else:
+        elif args.mode == "hybrid":
             hits, sources = hybrid_search(conn, row[0], args.question, qvec, args.k)
+        else:
+            # Rerank the WHOLE candidate pool, not just the fused top-k.
+            hits, sources = hybrid_search(conn, row[0], args.question, qvec, 2 * CANDIDATES)
     t2 = time.perf_counter()
 
+t3 = t2
+if args.mode == "rerank":
+    pool = len(hits)
+    hits = rerank(args.question, hits, args.k)
+    t3 = time.perf_counter()
+
 print(f"Q: {args.question}   [mode: {args.mode}]")
-if args.mode in ("keyword", "hybrid"):
+if args.mode != "vector":
     print(f"terms: {keyword_terms(args.question)}")
-print(f"embed {1000 * (t1 - t0):.0f} ms | search {1000 * (t2 - t1):.0f} ms\n")
+timing = f"embed {1000 * (t1 - t0):.0f} ms | search {1000 * (t2 - t1):.0f} ms"
+if args.mode == "rerank":
+    timing += f" | rerank {1000 * (t3 - t2):.0f} ms over {pool} candidates"
+print(timing + "\n")
 
 for i, h in enumerate(hits, start=1):
     src = ""
