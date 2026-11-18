@@ -7,3 +7,6 @@ tree-sitter-javascript
 tree-sitter-typescript
 pytest
 sentence-transformers
+fastapi
+uvicorn[standard]
+psycopg_pool
