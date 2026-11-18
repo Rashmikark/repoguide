@@ -93,7 +93,28 @@ def _arrow_function_name(node):
                 return _name(d)
     return None
 
+TEST_CALLEES = {"test", "it", "describe", "suite", "bench"}
 
+
+def _call_block(node):
+    """`test('retries on 500', async t => {...})` becomes its own chunk."""
+    if node.type != "expression_statement" or not node.named_children:
+        return None, None
+    call = node.named_children[0]
+    if call.type != "call_expression":
+        return None, None
+    args = call.child_by_field_name("arguments")
+    if args is None or not any(a.type in FUNCTION_VALUES for a in args.named_children):
+        return None, None
+
+    callee = call.child_by_field_name("function").text.decode("utf-8")
+    title = next(
+        (a.text.decode("utf-8")[1:-1] for a in args.named_children
+         if a.type in ("string", "template_string")),
+        None,
+    )
+    kind = "test" if callee.split(".")[0] in TEST_CALLEES else "module"
+    return kind, title or callee
 # ---------- code ----------
 
 def _chunk_code(f, lines):
@@ -108,6 +129,8 @@ def _chunk_code(f, lines):
         if kind is None:
             symbol = _arrow_function_name(defn)
             kind = "function" if symbol else None
+        if kind is None:
+            kind, symbol = _call_block(defn)
         if kind is None:
             continue    # imports, constants etc. stay in the module gap
 

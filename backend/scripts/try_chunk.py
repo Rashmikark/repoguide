@@ -23,7 +23,17 @@ print("by kind:", dict(Counter(c.kind for c in chunks)))
 print("lines per chunk: max", max(sizes), "| avg", round(sum(sizes) / len(sizes), 1))
 print("non-blank lines missed:", missed)
 
-samples = [c for c in chunks if c.kind == "function"][:2] + [c for c in chunks if c.kind == "class"][:1]
-for c in samples:
-    print(f"\n--- {c.path} L{c.start_line}-{c.end_line} [{c.kind}] {c.symbol}")
-    print("\n".join(c.content.split("\n")[:5]))
+samples = ([c for c in chunks if c.kind == "function"][:1]
+           + [c for c in chunks if c.kind == "class"][:1]
+           + [c for c in chunks if c.kind == "test"][:1])
+
+
+print("\nmodule chunks by top folder:")
+module_dirs = Counter(c.path.split("/")[0] for c in chunks if c.kind == "module")
+for folder, n in module_dirs.most_common(5):
+    print(f"  {n:>4}  {folder}")
+
+big = sorted((c for c in chunks if c.kind == "module"), key=lambda c: c.start_line - c.end_line)[:3]
+for c in big:
+    print(f"\n--- biggest module: {c.path} L{c.start_line}-{c.end_line}")
+    print("\n".join(c.content.split("\n")[:4]))
