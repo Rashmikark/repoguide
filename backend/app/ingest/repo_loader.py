@@ -106,3 +106,12 @@ def load_repo(url: str) -> LoadedRepo:
     ).stdout.strip()
     files, skipped = collect_files(root)
     return LoadedRepo(owner, name, sha, files, skipped)
+
+
+
+def remote_head_sha(owner: str, name: str) -> str | None:
+    out = subprocess.run(
+        ["git", "ls-remote", f"https://github.com/{owner}/{name}.git", "HEAD"],
+        capture_output=True, text=True, check=True, timeout=60,
+    ).stdout
+    return out.split()[0] if out else None

@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     database_url: str
     embed_model: str
     embed_dim: int = 768
+    embed_texts_per_minute: int = 50
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
