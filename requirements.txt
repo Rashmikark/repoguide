@@ -1,3 +1,7 @@
 google-genai
 pydantic-settings
 psycopg[binary]
+tree-sitter
+tree-sitter-python
+tree-sitter-javascript
+tree-sitter-typescript
