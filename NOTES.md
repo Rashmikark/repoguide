@@ -1,3 +1,14 @@
+## Week 1 — indexing & vector search
+- Chunking: 0 non-blank lines missed on itsdangerous and ky. ky test-aware rule: module chunks 445 -> 376, avg chunk 49.8 -> 19.1 lines.
+- Remaining ky module chunks in test/: for-loops wrapping tests + setup code. Left for eval to judge.
+- itsdangerous indexing: ~25 s work vs ~116 s rate-limit waiting (50 texts/min).
+- Indexed .github templates and CHANGES.rst; may be noise for where/how questions.
+- Vector search timing varied 274 ms - 6.4 s on a 134-row table -> network/Neon wake-up, not query cost.
+- Vector scores squeezed into 0.63-0.78 -> scores only useful for ordering.
+
+
+
+
 ## Week 2 — retrieval comparison (smoke test, itsdangerous @ 672971d66a, k=5)
 
 > 4 questions chosen by me/mentor, results seen by all methods. NOT an evaluation.
