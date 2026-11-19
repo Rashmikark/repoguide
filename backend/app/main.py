@@ -1,11 +1,15 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Literal
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
+from google.genai import errors as genai_errors
 from psycopg.rows import dict_row
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 
+from backend.app.answer.explainer import explain
 from backend.app.config import settings
 from backend.app.db import pool, with_conn
 from backend.app.ingest.indexer import index_repo
@@ -15,6 +19,8 @@ from backend.app.ingest.repo_loader import (
     parse_github_url,
     remote_head_sha,
 )
+from backend.app.links import github_line_url
+from backend.app.retrieval.pipeline import retrieve
 
 log = logging.getLogger("uvicorn.error")
 
@@ -28,6 +34,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="RepoGuide API", version="0.1.0", lifespan=lifespan)
 
+
+# ---------- models ----------
 
 class RepoOut(BaseModel):
     id: int
@@ -55,6 +63,50 @@ class IndexResponse(BaseModel):
     started: bool
     reason: str
 
+
+Mode = Literal["vector", "keyword", "hybrid", "rerank", "llm-rerank"]
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+    mode: Mode = "hybrid"
+    k: int = Field(default=5, ge=1, le=10)
+
+
+class CitationOut(BaseModel):
+    source: int
+    path: str | None
+    start_line: int
+    end_line: int
+    valid: bool
+    reason: str
+    url: str | None
+
+
+class SourceOut(BaseModel):
+    n: int
+    path: str
+    start_line: int
+    end_line: int
+    kind: str
+    symbol: str | None
+    url: str
+
+
+class AskResponse(BaseModel):
+    repo_id: int
+    question: str
+    mode: str
+    found: bool
+    answer: str
+    citations: list[CitationOut]
+    invalid_citations: int
+    sources: list[SourceOut]
+    timings_ms: dict[str, int]
+    llm_usage: list[dict]
+
+
+# ---------- SQL ----------
 
 # The first %s is always settings.stale_after_minutes.
 REPO_SELECT = """
@@ -92,6 +144,8 @@ def _run_indexing(url: str) -> None:
     except Exception:
         log.exception("indexing %s failed", url)
 
+
+# ---------- endpoints ----------
 
 @app.get("/health")
 def health() -> dict:
@@ -154,3 +208,59 @@ def create_repo(req: IndexRequest, background: BackgroundTasks, response: Respon
     else:
         response.status_code = 200
     return {"repo": repo, "started": started, "reason": reason}
+
+
+@app.post("/repos/{repo_id}/ask", response_model=AskResponse)
+def ask(repo_id: int, req: AskRequest) -> dict:
+    repo = with_conn(lambda c: c.cursor(row_factory=dict_row).execute(
+        "SELECT id, url, status, commit_sha FROM repos WHERE id = %s", (repo_id,)
+    ).fetchone())
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    if repo["status"] != "ready":
+        raise HTTPException(status_code=409, detail=f"repo is not ready (status: {repo['status']})")
+
+    started = time.perf_counter()
+    try:
+        hits, info = with_conn(lambda c: retrieve(c, repo_id, req.question, req.mode, req.k))
+        t = time.perf_counter()
+        exp = explain(req.question, hits)
+        info["timings_ms"]["answer"] = round(1000 * (time.perf_counter() - t))
+    except genai_errors.APIError as e:
+        log.warning("Gemini failed for repo %s: %s", repo_id, e)
+        raise HTTPException(status_code=503, detail="AI service unavailable, please try again")
+    except ValidationError:
+        log.exception("Gemini returned a malformed answer for repo %s", repo_id)
+        raise HTTPException(status_code=502, detail="AI service returned a malformed answer")
+    info["timings_ms"]["total"] = round(1000 * (time.perf_counter() - started))
+    info["llm_usage"].append(exp.usage)
+
+    repo_url, sha = repo["url"], repo["commit_sha"]
+    citations = [
+        {
+            "source": c.source, "path": c.path, "start_line": c.start, "end_line": c.end,
+            "valid": c.valid, "reason": c.reason,
+            "url": github_line_url(repo_url, sha, c.path, c.start, c.end) if c.valid else None,
+        }
+        for c in exp.citations
+    ]
+    sources = [
+        {
+            "n": i, "path": h.path, "start_line": h.start_line, "end_line": h.end_line,
+            "kind": h.kind, "symbol": h.symbol,
+            "url": github_line_url(repo_url, sha, h.path, h.start_line, h.end_line),
+        }
+        for i, h in enumerate(hits, start=1)
+    ]
+    return {
+        "repo_id": repo_id,
+        "question": req.question,
+        "mode": req.mode,
+        "found": exp.found,
+        "answer": exp.answer,
+        "citations": citations,
+        "invalid_citations": sum(1 for c in exp.citations if not c.valid),
+        "sources": sources,
+        "timings_ms": info["timings_ms"],
+        "llm_usage": info["llm_usage"],
+    }

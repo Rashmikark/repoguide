@@ -58,3 +58,14 @@
   Better: keep serving the last good index until the new one succeeds.
 - UI note: right after a claim, counts still show the OLD index (134/134) while status
   is pending -> only show the progress bar when status == "indexing".
+
+  ## Week 2 — Ask endpoint (Step 11c)
+- POST /repos/{id}/ask works end to end. Q4 (llm-rerank): found=true, cites
+  timed.py L138-153 (contains raise lines 142/149), 0 invalid citations.
+- Citation links are pinned to the indexed commit (blob/<sha>/path#Lx-Ly).
+- No-answer question (PostgreSQL): found=false, no citations, nothing invented.
+- Input checks: 404 unknown repo, 422 invalid mode, 422 question < 3 chars.
+- Latency (single runs, NOT p50): Q4 llm-rerank total 16.5 s (answer 9.3 s,
+  search 2.9 s, rerank 2.7 s, embed 1.3 s); no-answer hybrid 9.0 s (search 4.9 s).
+  -> too slow for a blank screen; UI must show progress steps. Measure p50/p95 in eval.
+- Known limit: a DB connection is held while Gemini runs (pool max 5).
