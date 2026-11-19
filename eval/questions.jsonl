@@ -1,0 +1,1 @@
+{"id": "mksf-neg-01", "repo": "pallets/markupsafe", "category": "negative", "question": "How does markupsafe send HTTP requests to a remote server?", "answerable": false, "gold": [], "key_points": []}

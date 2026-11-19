@@ -5,6 +5,7 @@ from google.genai import errors, types
 from langfuse import observe
 
 from backend.app.config import settings
+from backend.app.quota import is_daily_quota
 from backend.app.tracing import trace_generation
 
 MAX_RETRIES = 4
@@ -50,19 +51,23 @@ def generate(prompt: str, *, json_schema=None, temperature: float = 0.0) -> tupl
             return text, usage
         except Exception as e:
             is_api_error = isinstance(e, errors.APIError)
-            retryable = (not is_api_error) or e.code in (429, 503)
+            code = e.code if is_api_error else None
+            daily = is_daily_quota(code, str(e))
+            retryable = not daily and ((not is_api_error) or code in (429, 503))
             if retryable and attempt < MAX_RETRIES - 1:
                 wait = 5 * 2 ** attempt
-                reason = e.code if is_api_error else type(e).__name__
+                reason = code if is_api_error else type(e).__name__
                 print(f"  LLM call failed ({reason}), retrying in {wait}s")
                 time.sleep(wait)
                 continue
+            if daily:
+                print("  LLM DAILY quota used up - not retrying (resets tomorrow)")
             trace_generation(
                 model=settings.gemini_model,
                 input=prompt,
                 level="ERROR",
                 status_message=f"{type(e).__name__}: {e}"[:500],
-                metadata={"attempts": attempt + 1},
+                metadata={"attempts": attempt + 1, "daily_quota": daily},
             )
             raise
     raise RuntimeError("unreachable")

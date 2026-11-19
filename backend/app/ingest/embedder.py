@@ -6,6 +6,7 @@ from google import genai
 from google.genai import errors, types
 
 from backend.app.config import settings
+from backend.app.quota import is_daily_quota
 
 BATCH_SIZE = 50
 MAX_CHARS = 6000          # stay well under the embedding model's input limit
@@ -75,10 +76,14 @@ def _embed_batch(batch: list[str], task_type: str) -> list[list[float]]:
             return vectors
         except Exception as e:
             is_api_error = isinstance(e, errors.APIError)
-            retryable = (not is_api_error) or e.code in (429, 503)
+            code = e.code if is_api_error else None
+            if is_daily_quota(code, str(e)):
+                print("  embedding DAILY quota used up - not retrying (resets tomorrow)")
+                raise
+            retryable = (not is_api_error) or code in (429, 503)
             if retryable and attempt < MAX_RETRIES - 1:
                 wait = 5 * 2 ** attempt
-                reason = e.code if is_api_error else type(e).__name__
+                reason = code if is_api_error else type(e).__name__
                 print(f"  embedding call failed ({reason}), retrying in {wait}s")
                 wait_seconds += wait
                 time.sleep(wait)
