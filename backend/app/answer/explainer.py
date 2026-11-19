@@ -1,10 +1,12 @@
 import re
 from dataclasses import dataclass
 
+from langfuse import observe
 from pydantic import BaseModel
 
 from backend.app.llm import generate
 from backend.app.retrieval.vector_search import Hit
+from backend.app.tracing import trace_span
 
 CITE = re.compile(r"\[(\d+):(\d+)(?:-(\d+))?\]")
 
@@ -71,10 +73,18 @@ def check_citations(text: str, hits: list[Hit]) -> list[Citation]:
     return out
 
 
+@observe(name="explain", capture_input=False, capture_output=False)
 def explain(question: str, hits: list[Hit]) -> Explanation:
     if not hits:
+        trace_span(output={"found": False, "reason": "no hits"})
         return Explanation(False, "No indexed code matched this question.", [], {})
     sources = "\n\n".join(_format_source(i, h) for i, h in enumerate(hits, start=1))
     text, usage = generate(PROMPT.format(question=question, sources=sources), json_schema=_Answer)
     data = _Answer.model_validate_json(text)
-    return Explanation(data.found, data.answer, check_citations(data.answer, hits), usage)
+    citations = check_citations(data.answer, hits)
+    trace_span(output={
+        "found": data.found,
+        "citations": len(citations),
+        "invalid_citations": sum(1 for c in citations if not c.valid),
+    })
+    return Explanation(data.found, data.answer, citations, usage)

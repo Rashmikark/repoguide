@@ -2,8 +2,10 @@ import time
 
 from google import genai
 from google.genai import errors, types
+from langfuse import observe
 
 from backend.app.config import settings
+from backend.app.tracing import trace_generation
 
 MAX_RETRIES = 4
 
@@ -13,8 +15,9 @@ _client = genai.Client(
 )
 
 
+@observe(as_type="generation", name="gemini.generate", capture_input=False, capture_output=False)
 def generate(prompt: str, *, json_schema=None, temperature: float = 0.0) -> tuple[str, dict]:
-    """One Gemini call with retries. Returns (text, usage)."""
+    """One Gemini call with retries. Returns (text, usage). Recorded in Langfuse."""
     cfg = {"temperature": temperature}
     if json_schema is not None:
         cfg["response_mime_type"] = "application/json"
@@ -33,7 +36,18 @@ def generate(prompt: str, *, json_schema=None, temperature: float = 0.0) -> tupl
                 "input_tokens": (u.prompt_token_count or 0) if u else 0,
                 "output_tokens": (u.candidates_token_count or 0) if u else 0,
             }
-            return resp.text or "", usage
+            text = resp.text or ""
+            trace_generation(
+                model=settings.gemini_model,
+                input=prompt,
+                output=text,
+                usage_details={
+                    "input_tokens": usage["input_tokens"],
+                    "output_tokens": usage["output_tokens"],
+                },
+                metadata={"attempts": attempt + 1, "json_output": json_schema is not None},
+            )
+            return text, usage
         except Exception as e:
             is_api_error = isinstance(e, errors.APIError)
             retryable = (not is_api_error) or e.code in (429, 503)
@@ -43,5 +57,12 @@ def generate(prompt: str, *, json_schema=None, temperature: float = 0.0) -> tupl
                 print(f"  LLM call failed ({reason}), retrying in {wait}s")
                 time.sleep(wait)
                 continue
+            trace_generation(
+                model=settings.gemini_model,
+                input=prompt,
+                level="ERROR",
+                status_message=f"{type(e).__name__}: {e}"[:500],
+                metadata={"attempts": attempt + 1},
+            )
             raise
     raise RuntimeError("unreachable")

@@ -69,3 +69,15 @@
   search 2.9 s, rerank 2.7 s, embed 1.3 s); no-answer hybrid 9.0 s (search 4.9 s).
   -> too slow for a blank screen; UI must show progress steps. Measure p50/p95 in eval.
 - Known limit: a DB connection is held while Gemini runs (pool max 5).
+
+## Week 2 — Tracing (Step 12)
+- Langfuse (US region, Hobby plan). First 401 was the wrong host (EU vs US).
+- Bug: my "never break" tracing helper evaluated the method BEFORE the try,
+  so a method missing in the SDK (update_current_trace) crashed /ask with 500.
+  Fixed: look up the method by name inside the try + unit test for it.
+- One question = one trace tree: ask -> retrieve -> gemini.generate (rerank)
+  and ask -> explain -> gemini.generate (answer). /ask returns trace_id.
+- Trace f73a1c25: total 77 s, of which 70 s was the answer gemini.generate.
+  Retrieval 7.7 s. Tracing showed the cause in one look.
+- Citation [1:72-146] was valid but 75 lines wide (earlier run: 138-153).
+  -> eval must also measure citation WIDTH, not just validity.

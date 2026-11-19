@@ -1,19 +1,33 @@
 import time
 
 import psycopg
+from langfuse import observe
 
 from backend.app.retrieval.hybrid_search import CANDIDATES, hybrid_search
 from backend.app.retrieval.keyword_search import keyword_search
 from backend.app.retrieval.llm_rerank import llm_rerank
 from backend.app.retrieval.vector_search import Hit, embed_query, vector_search
+from backend.app.tracing import trace_span
 
 MODES = ("vector", "keyword", "hybrid", "rerank", "llm-rerank")
 
 
+@observe(name="retrieve", capture_input=False, capture_output=False)
 def retrieve(conn: psycopg.Connection, repo_id: int, question: str,
              mode: str = "hybrid", k: int = 5) -> tuple[list[Hit], dict]:
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r}")
+    hits, info = _retrieve(conn, repo_id, question, mode, k)
+    trace_span(
+        input={"repo_id": repo_id, "question": question, "mode": mode, "k": k},
+        output=[f"{h.path}:L{h.start_line}-{h.end_line} {h.symbol or ''}".strip() for h in hits],
+        metadata={"timings_ms": info["timings_ms"]},
+    )
+    return hits, info
+
+
+def _retrieve(conn: psycopg.Connection, repo_id: int, question: str,
+              mode: str, k: int) -> tuple[list[Hit], dict]:
     info: dict = {"mode": mode, "timings_ms": {}, "llm_usage": []}
     t = time.perf_counter()
 

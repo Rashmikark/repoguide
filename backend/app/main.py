@@ -6,6 +6,7 @@ from typing import Literal
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
 from google.genai import errors as genai_errors
+from langfuse import observe
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field, ValidationError
 
@@ -21,6 +22,7 @@ from backend.app.ingest.repo_loader import (
 )
 from backend.app.links import github_line_url
 from backend.app.retrieval.pipeline import retrieve
+from backend.app.tracing import current_trace_id, langfuse, trace_request
 
 log = logging.getLogger("uvicorn.error")
 
@@ -30,6 +32,10 @@ async def lifespan(app: FastAPI):
     pool.open(wait=True, timeout=30)
     yield
     pool.close()
+    try:
+        langfuse.flush()   # send any queued traces before the process exits
+    except Exception:
+        pass
 
 
 app = FastAPI(title="RepoGuide API", version="0.1.0", lifespan=lifespan)
@@ -104,6 +110,7 @@ class AskResponse(BaseModel):
     sources: list[SourceOut]
     timings_ms: dict[str, int]
     llm_usage: list[dict]
+    trace_id: str | None
 
 
 # ---------- SQL ----------
@@ -220,22 +227,35 @@ def ask(repo_id: int, req: AskRequest) -> dict:
     if repo["status"] != "ready":
         raise HTTPException(status_code=409, detail=f"repo is not ready (status: {repo['status']})")
 
-    started = time.perf_counter()
     try:
-        hits, info = with_conn(lambda c: retrieve(c, repo_id, req.question, req.mode, req.k))
-        t = time.perf_counter()
-        exp = explain(req.question, hits)
-        info["timings_ms"]["answer"] = round(1000 * (time.perf_counter() - t))
+        return _answer(repo, req)
     except genai_errors.APIError as e:
         log.warning("Gemini failed for repo %s: %s", repo_id, e)
         raise HTTPException(status_code=503, detail="AI service unavailable, please try again")
     except ValidationError:
         log.exception("Gemini returned a malformed answer for repo %s", repo_id)
         raise HTTPException(status_code=502, detail="AI service returned a malformed answer")
+
+
+@observe(name="ask", capture_input=False, capture_output=False)
+def _answer(repo: dict, req: AskRequest) -> dict:
+    """Root of the trace: retrieve -> explain, with every Gemini call nested inside."""
+    repo_id, repo_url, sha = repo["id"], repo["url"], repo["commit_sha"]
+    trace_request(
+        name="ask",
+        tags=[req.mode],
+        metadata={"repo_id": repo_id, "repo_url": repo_url, "commit_sha": sha, "mode": req.mode},
+        input={"question": req.question, "mode": req.mode, "k": req.k},
+    )
+
+    started = time.perf_counter()
+    hits, info = with_conn(lambda c: retrieve(c, repo_id, req.question, req.mode, req.k))
+    t = time.perf_counter()
+    exp = explain(req.question, hits)
+    info["timings_ms"]["answer"] = round(1000 * (time.perf_counter() - t))
     info["timings_ms"]["total"] = round(1000 * (time.perf_counter() - started))
     info["llm_usage"].append(exp.usage)
 
-    repo_url, sha = repo["url"], repo["commit_sha"]
     citations = [
         {
             "source": c.source, "path": c.path, "start_line": c.start, "end_line": c.end,
@@ -252,6 +272,15 @@ def ask(repo_id: int, req: AskRequest) -> dict:
         }
         for i, h in enumerate(hits, start=1)
     ]
+    invalid = sum(1 for c in exp.citations if not c.valid)
+
+    trace_request(output={
+        "found": exp.found,
+        "answer": exp.answer,
+        "citations": len(citations),
+        "invalid_citations": invalid,
+        "timings_ms": info["timings_ms"],
+    })
     return {
         "repo_id": repo_id,
         "question": req.question,
@@ -259,8 +288,9 @@ def ask(repo_id: int, req: AskRequest) -> dict:
         "found": exp.found,
         "answer": exp.answer,
         "citations": citations,
-        "invalid_citations": sum(1 for c in exp.citations if not c.valid),
+        "invalid_citations": invalid,
         "sources": sources,
         "timings_ms": info["timings_ms"],
         "llm_usage": info["llm_usage"],
+        "trace_id": current_trace_id(),
     }
