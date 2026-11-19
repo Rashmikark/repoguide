@@ -1,3 +1,4 @@
+import os
 import re
 import shutil
 import stat
@@ -22,6 +23,27 @@ SKIP_DIRS = {
 SKIP_SUFFIXES = (".min.js", ".bundle.js")
 
 GITHUB_URL = re.compile(r"^https://github\.com/([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
+
+# Never let git open a login prompt: a private/missing repo must fail fast,
+# not freeze the server waiting for a password.
+_GIT_ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
+
+# What git prints when a repo is missing or private (GitHub answers both the same way).
+_NOT_FOUND_HINTS = (
+    "repository not found",
+    "could not read username",
+    "terminal prompts disabled",
+    "user interactivity has been disabled",
+    "authentication failed",
+)
+
+
+class RepoNotFound(Exception):
+    """The repo does not exist or is private."""
+
+
+class GitHubUnavailable(Exception):
+    """GitHub could not be reached (network error, timeout, outage)."""
 
 
 @dataclass
@@ -61,7 +83,7 @@ def clone(owner: str, name: str) -> Path:
     url = f"https://github.com/{owner}/{name}.git"
     subprocess.run(
         ["git", "clone", "--depth", "1", "--quiet", url, str(dest)],
-        check=True, timeout=300,
+        check=True, timeout=300, env=_GIT_ENV,
     )
     return dest
 
@@ -102,16 +124,28 @@ def load_repo(url: str) -> LoadedRepo:
     root = clone(owner, name)
     sha = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "HEAD"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, check=True, env=_GIT_ENV,
     ).stdout.strip()
     files, skipped = collect_files(root)
     return LoadedRepo(owner, name, sha, files, skipped)
 
 
+def classify_ls_remote(returncode: int, stdout: str, stderr: str) -> str | None:
+    """Turn a `git ls-remote` result into a commit SHA, None (empty repo), or an error."""
+    if returncode == 0:
+        return stdout.split()[0] if stdout.strip() else None
+    message = stderr.strip()
+    if any(hint in message.lower() for hint in _NOT_FOUND_HINTS):
+        raise RepoNotFound(message)
+    raise GitHubUnavailable(message or f"git exited with code {returncode}")
+
 
 def remote_head_sha(owner: str, name: str) -> str | None:
-    out = subprocess.run(
-        ["git", "ls-remote", f"https://github.com/{owner}/{name}.git", "HEAD"],
-        capture_output=True, text=True, check=True, timeout=60,
-    ).stdout
-    return out.split()[0] if out else None
+    try:
+        result = subprocess.run(
+            ["git", "ls-remote", f"https://github.com/{owner}/{name}.git", "HEAD"],
+            capture_output=True, text=True, timeout=60, env=_GIT_ENV,
+        )
+    except subprocess.TimeoutExpired:
+        raise GitHubUnavailable("git ls-remote timed out after 60s")
+    return classify_ls_remote(result.returncode, result.stdout, result.stderr)

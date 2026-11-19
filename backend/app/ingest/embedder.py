@@ -1,3 +1,4 @@
+import threading
 import time
 from collections import deque
 
@@ -17,6 +18,7 @@ _client = genai.Client(
 
 _sent: deque[tuple[float, int]] = deque()   # (time sent, number of texts)
 wait_seconds = 0.0                           # total time spent waiting on limits
+_lock = threading.Lock()                     # several indexing jobs share one rate limit
 
 
 def chunk_embedding_text(path: str, kind: str, symbol: str | None, content: str) -> str:
@@ -27,7 +29,8 @@ def chunk_embedding_text(path: str, kind: str, symbol: str | None, content: str)
 
 
 def embed_texts(texts: list[str], task_type: str) -> list[list[float]]:
-    size = min(BATCH_SIZE, settings.embed_texts_per_minute)
+    limit = settings.embed_texts_per_minute
+    size = limit // -(-limit // BATCH_SIZE)   # 50 -> 50, 80 -> 40, 120 -> 40
     vectors: list[list[float]] = []
     for i in range(0, len(texts), size):
         batch = [t[:MAX_CHARS] for t in texts[i:i + size]]
@@ -40,17 +43,18 @@ def _pace(n: int) -> None:
     """Block until sending n more texts keeps us under the per-minute limit."""
     global wait_seconds
     limit = settings.embed_texts_per_minute
-    while True:
-        now = time.monotonic()
-        while _sent and now - _sent[0][0] >= 60:
-            _sent.popleft()
-        if sum(k for _, k in _sent) + n <= limit:
-            _sent.append((now, n))
-            return
-        pause = 60 - (now - _sent[0][0]) + 0.5
-        print(f"  pacing: waiting {pause:.0f}s to stay under {limit} texts/min")
-        wait_seconds += pause
-        time.sleep(pause)
+    with _lock:
+        while True:
+            now = time.monotonic()
+            while _sent and now - _sent[0][0] >= 60:
+                _sent.popleft()
+            if sum(k for _, k in _sent) + n <= limit:
+                _sent.append((now, n))
+                return
+            pause = 60 - (now - _sent[0][0]) + 0.5
+            print(f"  pacing: waiting {pause:.0f}s to stay under {limit} texts/min")
+            wait_seconds += pause
+            time.sleep(pause)
 
 
 def _embed_batch(batch: list[str], task_type: str) -> list[list[float]]:

@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     embed_model: str
     embed_dim: int = 768
     embed_texts_per_minute: int = 50
+    stale_after_minutes: int = 10
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

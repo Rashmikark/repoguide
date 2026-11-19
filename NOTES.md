@@ -42,3 +42,19 @@
 - Gemini: SSL EOF once, one silent hang (fixed with 60 s timeout + retries), 503 on 3.8/3.5-flash.
 - Embeddings: 429 at ~100 texts/min; 50/min proven safe; 80 test inconclusive (batch size 50).
 - Neon: SSL connection closed on first query after idle (fix planned in Step 11: pool + retry).
+
+## Week 2 — API (Step 11)
+- POST /repos: 400 bad URL, 404 missing repo, 200 already indexed, 202 started,
+  200 "already in progress" on a second request 1 s later (atomic claim works).
+- markupsafe indexed via API: 23 files, 111 chunks, ~74 s.
+- itsdangerous re-index via API: 81.9 s total, 54.4 s rate-limit waiting (~27.5 s work).
+- 80 texts/min: one run with 40+40 batches, no 429 -> works so far (keep watching).
+- Bug found: every git failure was reported as 404 "not found". A network failure
+  told the user a real repo didn't exist. Fixed: classify git's error -> 404 vs 503.
+- Root cause seen: GitHub unreachable for ~3 min -> ls-remote failed and a clone hung.
+- Ctrl+C on the server also kills a running git clone (exit 130); job correctly marked failed.
+- --reload restart waits for background tasks to finish (graceful).
+- Weakness: a failed RE-index marks the repo failed even though the old index is intact.
+  Better: keep serving the last good index until the new one succeeds.
+- UI note: right after a claim, counts still show the OLD index (134/134) while status
+  is pending -> only show the progress bar when status == "indexing".

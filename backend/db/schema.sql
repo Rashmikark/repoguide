@@ -44,9 +44,6 @@ CREATE INDEX IF NOT EXISTS chunks_repo_idx
 CREATE INDEX IF NOT EXISTS chunks_embedding_idx
     ON chunks USING hnsw (embedding vector_cosine_ops);
 
-
-
-
 -- Step 7: keyword search
 ALTER TABLE chunks ADD COLUMN IF NOT EXISTS search_text TEXT;
 
@@ -55,3 +52,6 @@ ALTER TABLE chunks ADD COLUMN IF NOT EXISTS search_tsv tsvector
 
 CREATE INDEX IF NOT EXISTS chunks_search_idx
     ON chunks USING gin (search_tsv);
+
+-- Step 11: background indexing heartbeat
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ;

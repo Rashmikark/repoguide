@@ -1,8 +1,9 @@
 import psycopg
-from backend.app.ingest.search_text import build_search_text
+
 from backend.app.ingest.chunker import Chunk
 from backend.app.ingest.embedder import chunk_embedding_text, embed_texts
 from backend.app.ingest.repo_loader import LoadedRepo, SourceFile
+from backend.app.ingest.search_text import build_search_text
 
 EMBED_PAGE = 200   # chunks read from the DB and committed per round
 
@@ -16,10 +17,11 @@ def save_repo(conn: psycopg.Connection, repo: LoadedRepo,
     url = f"https://github.com/{repo.owner}/{repo.name}"
     repo_id = conn.execute(
         """
-        INSERT INTO repos (url, owner, name, commit_sha, status)
-        VALUES (%s, %s, %s, %s, 'indexing')
+        INSERT INTO repos (url, owner, name, commit_sha, status, heartbeat_at)
+        VALUES (%s, %s, %s, %s, 'indexing', now())
         ON CONFLICT (url) DO UPDATE
-            SET commit_sha = EXCLUDED.commit_sha, status = 'indexing', error = NULL
+            SET commit_sha = EXCLUDED.commit_sha, status = 'indexing',
+                error = NULL, heartbeat_at = now()
         RETURNING id
         """,
         (url, repo.owner, repo.name, repo.commit_sha),
@@ -66,6 +68,8 @@ def embed_missing(conn: psycopg.Connection, repo_id: int) -> int:
                 [(to_pgvector(v), row[0]) for v, row in zip(vectors, rows)],
             )
         conn.commit()          # each page is saved, so a crash loses nothing
+        conn.execute("UPDATE repos SET heartbeat_at = now() WHERE id = %s", (repo_id,))
+        conn.commit()          # heartbeat: "this job is still alive"
         done += len(rows)
         print(f"  embedded {done} chunks")
 
@@ -73,7 +77,7 @@ def embed_missing(conn: psycopg.Connection, repo_id: int) -> int:
 def mark_ready(conn: psycopg.Connection, repo_id: int) -> None:
     conn.execute(
         """
-        UPDATE repos SET status = 'ready', indexed_at = now(),
+        UPDATE repos SET status = 'ready', indexed_at = now(), heartbeat_at = now(),
             file_count  = (SELECT count(*) FROM files  WHERE repo_id = %s),
             chunk_count = (SELECT count(*) FROM chunks WHERE repo_id = %s)
         WHERE id = %s
