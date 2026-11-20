@@ -11,18 +11,23 @@ def _issue(n, labels=(), comments=0, created="2026-01-01T00:00:00Z", **extra):
             "created_at": created, "body": "text", **extra}
 
 
-def test_prs_assigned_locked_and_unlabelled_are_skipped_and_counted():
+def test_everything_is_sorted_into_exactly_one_bucket():
     raw = [
         _issue(1, ["good first issue"]),
         _issue(2, ["good first issue"], pull_request={"url": "x"}),
         _issue(3, ["good first issue"], assignee={"login": "a"}),
         _issue(4, ["good first issue"], locked=True),
         _issue(5, ["bug"]),
+        _issue(6, ["question"]),
     ]
     out = pick_issues(raw)
     assert [i["number"] for i in out["issues"]] == [1]
-    assert out["checks"] == {"open_items_checked": 5, "pull_requests": 1, "assigned": 1,
-                             "locked": 1, "no_beginner_label": 1}
+    assert [i["number"] for i in out["other_open_issues"]] == [5]
+    c = out["checks"]
+    assert c == {"open_items_checked": 6, "pull_requests": 1, "assigned": 1,
+                 "locked": 1, "not_actionable": 1, "no_beginner_label": 1}
+    assert (c["pull_requests"] + c["assigned"] + c["locked"] + c["not_actionable"]
+            + c["no_beginner_label"] + out["candidates"]) == c["open_items_checked"]
 
 
 def test_ranking_score_then_comments_then_newest():
@@ -35,6 +40,19 @@ def test_ranking_score_then_comments_then_newest():
     assert [i["number"] for i in pick_issues(raw)["issues"]] == [4, 3, 2, 1]
 
 
+def test_other_open_issues_fewest_comments_then_newest():
+    raw = [
+        _issue(1, [], comments=4),
+        _issue(2, ["bug"], comments=0, created="2026-01-01T00:00:00Z"),
+        _issue(3, ["enhancement"], comments=0, created="2026-02-01T00:00:00Z"),
+        _issue(4, ["Won't Fix"], comments=0),
+    ]
+    out = pick_issues(raw)
+    assert [i["number"] for i in out["other_open_issues"]] == [3, 2, 1]
+    assert out["issues"] == [] and out["checks"]["not_actionable"] == 1
+    assert all(i["score"] == 0 for i in out["other_open_issues"])
+
+
 def test_label_names_matched_loosely():
     assert label_score(["Good-First-Issue"]) == 3
     assert label_score(["status: good first issue"]) == 3
@@ -43,8 +61,9 @@ def test_label_names_matched_loosely():
 
 
 def test_empty_when_nothing_qualifies():
-    out = pick_issues([_issue(1, ["bug"])])
-    assert out["issues"] == [] and out["candidates"] == 0 and "most recently" in out["note"]
+    out = pick_issues([_issue(1, ["question"])])
+    assert out["issues"] == [] and out["other_open_issues"] == []
+    assert out["candidates"] == 0 and "most recently" in out["note"]
 
 
 def _client(status, json_body=None, headers=None, seen=None):

@@ -8,6 +8,15 @@ from backend.app.config import settings
 from backend.app.onboarding.issues import fetch_open_issues, pick_issues
 
 
+def _show(title: str, items: list[dict]) -> None:
+    print(f"\n== {title}: {len(items)}")
+    for i in items:
+        print(f"\n#{i['number']}  score {i['score']}  comments {i['comments']}  {i['created_at'][:10]}")
+        print(f"  {i['title']}")
+        print(f"  labels: {i['labels']}")
+        print(f"  {i['url']}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("repo_id", type=int)
@@ -21,11 +30,8 @@ def main() -> None:
     out = pick_issues(fetch_open_issues(row[0], row[1]))
     print(f"{row[0]}/{row[1]}")
     print(json.dumps({k: out[k] for k in ("candidates", "checks", "note")}, indent=2))
-    for i in out["issues"]:
-        print(f"\n#{i['number']}  score {i['score']}  comments {i['comments']}  {i['created_at'][:10]}")
-        print(f"  {i['title']}")
-        print(f"  labels: {i['labels']}")
-        print(f"  {i['url']}")
+    _show("Good first issues (beginner-labelled)", out["issues"])
+    _show("Other open issues (NOT labelled for beginners)", out["other_open_issues"])
 
 
 if __name__ == "__main__":
