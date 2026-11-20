@@ -1,6 +1,7 @@
 """Gemini writes one multiple-choice question per source chunk; code checks every question.
 Bad questions are dropped and counted by reason. Options are shuffled with a seed taken from
 the question, so the right answer is not always in the same place, yet the quiz is repeatable.
+`longest_is_correct` measures the "pick the longest option" give-away.
 Code CANNOT check that Gemini's 'correct' answer is right - that needs a human hand-check."""
 import random
 from collections import Counter
@@ -19,8 +20,11 @@ Write exactly ONE question for EACH numbered source below.
 Rules for every question:
 - It must be answerable from that source's code alone. Ask about behaviour, purpose or how
   the pieces fit together - not about line numbers, variable spelling or trivia.
-- Give exactly 4 options. Exactly one is correct; the other three must be plausible but
-  clearly wrong to someone who reads the code.
+- Give exactly 4 options. Exactly one is correct.
+- Make all 4 options similar in length and style. The correct option must NOT be the
+  longest or the most detailed one.
+- Each wrong option must describe clearly DIFFERENT behaviour that the code does not have -
+  never a rewording of the correct option.
 - correct: the index (0-3) of the correct option.
 - explanation: one or two sentences saying why the correct option is right.
 - lines: the line range in that source that proves the answer (use the line numbers shown).
@@ -64,11 +68,17 @@ def shuffle_options(options: list[str], correct: int, seed: str) -> tuple[list[s
     return [options[i] for i in order], order.index(correct)
 
 
+def correct_is_longest(options: list[str], correct: int) -> bool:
+    """True if the correct option is STRICTLY longer than every wrong option."""
+    return all(len(options[correct]) > len(o) for i, o in enumerate(options) if i != correct)
+
+
 def check_questions(sources: list[dict], data: dict, repo_url: str, sha: str) -> tuple[list[dict], dict]:
     """Pure function: validate Gemini's questions against the real source chunks."""
     dropped: Counter = Counter()
     out: list[dict] = []
     seen: set[int] = set()
+    longest = 0
     for q in data.get("questions", []):
         n = q["source"]
         if not 1 <= n <= len(sources):
@@ -93,6 +103,7 @@ def check_questions(sources: list[dict], data: dict, repo_url: str, sha: str) ->
             dropped["bad_lines"] += 1
             continue
         seen.add(n)
+        longest += correct_is_longest(opts, q["correct"])
         options, correct = shuffle_options(opts, q["correct"],
                                            seed=f"{s['path']}:{s['start']}:{q['question']}")
         out.append({
@@ -104,7 +115,8 @@ def check_questions(sources: list[dict], data: dict, repo_url: str, sha: str) ->
         })
     checks = {"kept": len(out), "dropped": dict(dropped),
               "missing_sources": len(sources) - len(seen),
-              "correct_positions": [q["correct"] for q in out]}
+              "correct_positions": [q["correct"] for q in out],
+              "longest_is_correct": longest}
     return out, checks
 
 
@@ -112,7 +124,8 @@ def check_questions(sources: list[dict], data: dict, repo_url: str, sha: str) ->
 def make_quiz(facts: dict, sources: list[dict]) -> dict:
     if not sources:
         return {"questions": [], "usage": {},
-                "checks": {"kept": 0, "dropped": {}, "missing_sources": 0, "correct_positions": []}}
+                "checks": {"kept": 0, "dropped": {}, "missing_sources": 0,
+                           "correct_positions": [], "longest_is_correct": 0}}
     text, usage = generate(build_prompt(facts["url"], sources), json_schema=_Quiz)
     data = _Quiz.model_validate_json(text).model_dump()
     questions, checks = check_questions(sources, data, facts["url"], facts["commit_sha"])

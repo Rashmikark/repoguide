@@ -103,3 +103,15 @@
 - Found while building the repo overview (ky): list citations like `[1:23-26,34]` were silently skipped, so they were counted neither valid nor invalid.
 - Fix: each comma part is checked separately; a part may repeat the source number (`[1:23-28, 1:34]`); anything unparseable is counted as an INVALID "malformed" citation.
 - Only the parser changed. The explainer prompt is unchanged. No official answer-eval result existed before this fix.
+
+## Week 4 – schema.sql incident (found and fixed 2026-11-20)
+- From commit a962060 (Step 20) to 23c5294 (Step 21), backend/db/schema.sql held only the newest
+  onboarding table: an "add at the end" edit replaced the whole file instead.
+- The Neon database was never affected (its tables already existed); only a FRESH database would have broken.
+- Found because a check (`findstr "CREATE TABLE"`) showed 1 table instead of 6. Restored the full file.
+- Rule: "tiny change: add at the end" = Ctrl+End then paste. Never Ctrl+A for those.
+
+## Week 4 – pending hand-checks (required before Week 6 README numbers)
+- Good first issues: is the FIRST related file useful? yes/partly/no for 6 issues.
+- Quiz: is each `*` answer really correct per the proof lines? right/wrong for itsdangerous q1-q5.
+- Until done, the README must not claim quality numbers for these two features.

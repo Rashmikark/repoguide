@@ -14,6 +14,7 @@ from backend.app.onboarding.facts import load_repo_facts
 from backend.app.onboarding.issues_service import build_issues
 from backend.app.onboarding.overview import make_overview
 from backend.app.onboarding.path_service import build_path
+from backend.app.onboarding.quiz_service import build_quiz
 
 
 class OnboardState(TypedDict, total=False):
@@ -24,7 +25,7 @@ class OnboardState(TypedDict, total=False):
     overview: dict
     path: dict
     issues: dict
-    quiz: list
+    quiz: dict
     errors: Annotated[list[str], operator.add]
 
 
@@ -77,9 +78,14 @@ def find_issues(state: OnboardState, config: RunnableConfig) -> dict:
         return {"issues": {}, "errors": [_err("issues", e)]}
 
 
-# Still a stub - replaced in Step 22.
-def make_quiz(state: OnboardState) -> dict:
-    return {"quiz": []}
+def quiz_node(state: OnboardState, config: RunnableConfig) -> dict:
+    facts = state.get("facts") or {}
+    if not facts:
+        return {"quiz": {}, "errors": ["quiz: skipped because facts are missing"]}
+    try:
+        return {"quiz": build_quiz(_conn(config), facts)}
+    except Exception as e:
+        return {"quiz": {}, "errors": [_err("quiz", e)]}
 
 
 def build_graph():
@@ -88,7 +94,7 @@ def build_graph():
     g.add_node("overview", overview)
     g.add_node("path", make_path)
     g.add_node("issues", find_issues)
-    g.add_node("quiz", make_quiz)
+    g.add_node("quiz", quiz_node)
     g.add_edge(START, "load_facts")
     g.add_edge("load_facts", "overview")
     g.add_edge("overview", "path")

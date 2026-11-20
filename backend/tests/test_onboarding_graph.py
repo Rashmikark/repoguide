@@ -17,11 +17,16 @@ def _fake_issues(conn, facts):
     return {"issues": [], "other_open_issues": [], "cached": False}
 
 
+def _fake_quiz(conn, facts):
+    return {"questions": [{"id": "q1"}], "quiz_id": 7, "cached": False}
+
+
 def _all_ok(monkeypatch):
     monkeypatch.setattr(graph, "load_repo_facts", lambda c, r: {"repo_id": r})
     monkeypatch.setattr(graph, "make_overview", lambda c, f: {"summary": "ok"})
     monkeypatch.setattr(graph, "build_path", _fake_path)
     monkeypatch.setattr(graph, "build_issues", _fake_issues)
+    monkeypatch.setattr(graph, "build_quiz", _fake_quiz)
 
 
 def test_happy_path_runs_every_node(monkeypatch):
@@ -39,7 +44,7 @@ def test_happy_path_runs_every_node(monkeypatch):
     assert out["overview"] == {"summary": "ok"}
     assert out["path"]["asked"] == (3, 2)     # days and hours came from the state
     assert out["issues"]["other_open_issues"] == []
-    assert out["quiz"] == []
+    assert out["quiz"]["quiz_id"] == 7
     assert out["errors"] == []
 
 
@@ -52,12 +57,14 @@ def test_facts_failure_skips_everything_after(monkeypatch):
     monkeypatch.setattr(graph, "make_overview", lambda c, f: called.append("overview"))
     monkeypatch.setattr(graph, "build_path", lambda *a: called.append("path"))
     monkeypatch.setattr(graph, "build_issues", lambda *a: called.append("issues"))
+    monkeypatch.setattr(graph, "build_quiz", lambda *a: called.append("quiz"))
     out = _run()
     assert called == []                       # nothing ran on empty facts
     assert out["errors"] == ["load_facts: ValueError: db down",
                              "overview: skipped because facts are missing",
                              "path: skipped because facts are missing",
-                             "issues: skipped because facts are missing"]
+                             "issues: skipped because facts are missing",
+                             "quiz: skipped because facts are missing"]
 
 
 def test_overview_failure_is_recorded_not_raised(monkeypatch):
@@ -92,6 +99,17 @@ def test_issues_failure_is_recorded_not_raised(monkeypatch):
     out = _run()
     assert out["issues"] == {} and out["path"]["asked"] == (3, 2)
     assert out["errors"] == ["issues: RuntimeError: GitHub API rate limit reached"]
+
+
+def test_quiz_failure_is_recorded_not_raised(monkeypatch):
+    def boom(conn, facts):
+        raise RuntimeError("LLM call failed (503)")
+
+    _all_ok(monkeypatch)
+    monkeypatch.setattr(graph, "build_quiz", boom)
+    out = _run()
+    assert out["quiz"] == {} and out["issues"]["other_open_issues"] == []
+    assert out["errors"] == ["quiz: RuntimeError: LLM call failed (503)"]
 
 
 def test_missing_connection_is_an_error():

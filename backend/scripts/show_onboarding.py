@@ -25,6 +25,7 @@ def main() -> None:
     ov = out.get("overview") or {}
     path = out.get("path") or {}
     iss = out.get("issues") or {}
+    quiz = out.get("quiz") or {}
     print(json.dumps({
         "errors": out.get("errors", []),
         "facts": {k: facts.get(k) for k in ("url", "file_count", "entry_points", "readme_path")},
@@ -34,18 +35,21 @@ def main() -> None:
             "days": len(path.get("days", [])),
             "files": sum(len(d["items"]) for d in path.get("days", [])),
             "planned_minutes": path.get("planned_minutes"),
-            "skipped": len(path.get("skipped", [])),
             "checks": path.get("checks"),
-            "day1_goal": (path.get("days") or [{}])[0].get("goal"),
         },
         "issues": {
             "cached": iss.get("cached"),
             "fetched_at": iss.get("fetched_at"),
             "beginner": [i["number"] for i in iss.get("issues", [])],
             "other": [i["number"] for i in iss.get("other_open_issues", [])],
-            "checks": iss.get("checks"),
         },
-        "quiz": len(out.get("quiz", [])),
+        "quiz": {
+            "cached": quiz.get("cached"),
+            "quiz_id": quiz.get("quiz_id"),
+            "questions": [q["question"] for q in quiz.get("questions", [])],
+            "checks": quiz.get("checks"),
+            "usage": quiz.get("usage"),
+        },
     }, indent=2))
 
 

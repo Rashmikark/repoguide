@@ -1,4 +1,4 @@
-from backend.app.onboarding.quiz_gen import check_questions, shuffle_options
+from backend.app.onboarding.quiz_gen import check_questions, correct_is_longest, shuffle_options
 
 URL, SHA = "https://github.com/x/y", "abc123"
 SOURCES = [
@@ -55,3 +55,11 @@ def test_shuffle_is_repeatable_and_keeps_the_answer():
     assert a == b                                        # same seed -> same order
     shuffled, correct = a
     assert shuffled[correct] == "right" and sorted(shuffled) == sorted(opts)
+
+
+def test_longest_is_correct_counted():
+    give_away = _q(source=1, options=("a much longer correct answer", "no", "nah", "nope"))
+    fair = _q(source=2, options=("yes", "nope", "nah", "no"), lines=(110, 120))   # "nope" is longest
+    _, checks = check_questions(SOURCES, {"questions": [give_away, fair]}, URL, SHA)
+    assert checks["longest_is_correct"] == 1
+    assert correct_is_longest(["aa", "aa", "b", "c"], 0) is False      # a tie is not "strictly longest"
