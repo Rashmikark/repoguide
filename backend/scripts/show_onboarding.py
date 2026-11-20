@@ -23,13 +23,21 @@ def main() -> None:
 
     facts = out.get("facts") or {}
     ov = out.get("overview") or {}
+    path = out.get("path") or {}
     print(json.dumps({
         "errors": out.get("errors", []),
-        "facts": {k: facts.get(k) for k in ("url", "file_count", "languages", "entry_points", "readme_path")},
-        "overview_summary": ov.get("summary"),
+        "facts": {k: facts.get(k) for k in ("url", "file_count", "entry_points", "readme_path")},
         "overview_invalid_citations": ov.get("invalid_citations"),
-        "overview_unknown_paths": ov.get("unknown_paths"),
-        "path_items": len(out.get("path", [])),
+        "path": {
+            "cached": path.get("cached"),
+            "days": len(path.get("days", [])),
+            "files": sum(len(d["items"]) for d in path.get("days", [])),
+            "planned_minutes": path.get("planned_minutes"),
+            "skipped": len(path.get("skipped", [])),
+            "checks": path.get("checks"),
+            "usage": path.get("usage"),
+            "day1_goal": (path.get("days") or [{}])[0].get("goal"),
+        },
         "issues": len(out.get("issues", [])),
         "quiz": len(out.get("quiz", [])),
     }, indent=2))

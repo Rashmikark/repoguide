@@ -12,6 +12,7 @@ from langgraph.graph import END, START, StateGraph
 
 from backend.app.onboarding.facts import load_repo_facts
 from backend.app.onboarding.overview import make_overview
+from backend.app.onboarding.path_service import build_path
 
 
 class OnboardState(TypedDict, total=False):
@@ -20,7 +21,7 @@ class OnboardState(TypedDict, total=False):
     hours_per_day: float
     facts: dict
     overview: dict
-    path: list
+    path: dict
     issues: list
     quiz: list
     errors: Annotated[list[str], operator.add]
@@ -54,11 +55,18 @@ def overview(state: OnboardState, config: RunnableConfig) -> dict:
         return {"overview": {}, "errors": [_err("overview", e)]}
 
 
-# Still stubs - replaced in Steps 20, 21 and 22.
-def make_path(state: OnboardState) -> dict:
-    return {"path": []}
+def make_path(state: OnboardState, config: RunnableConfig) -> dict:
+    facts = state.get("facts") or {}
+    if not facts:
+        return {"path": {}, "errors": ["path: skipped because facts are missing"]}
+    try:
+        return {"path": build_path(_conn(config), facts,
+                                   state.get("days", 5), state.get("hours_per_day", 2.0))}
+    except Exception as e:
+        return {"path": {}, "errors": [_err("path", e)]}
 
 
+# Still stubs - replaced in Steps 21 and 22.
 def find_issues(state: OnboardState) -> dict:
     return {"issues": []}
 
