@@ -1,0 +1,51 @@
+{
+  "run_id": "20261120T110257Z",
+  "k": 5,
+  "embed_model": "gemini-embedding-001",
+  "llm_model": "gemini-3.5-flash-lite",
+  "repos": {
+    "pallets/itsdangerous": {
+      "commit_sha": "672971d66a2ef9f85151e53283113f33d642dabd",
+      "chunks": 134
+    },
+    "pallets/markupsafe": {
+      "commit_sha": "4e111271b1494995708a9e878a10829b5e10c7ba",
+      "chunks": 111
+    },
+    "sindresorhus/ky": {
+      "commit_sha": "3541888878c4d303a8bc2ad61815f4e048f55a5d",
+      "chunks": 1944
+    }
+  },
+  "questions_scored": 46,
+  "negatives_not_scored_here": 4,
+  "latency_note": "latency = search (+ rerank); query embedding excluded (cached), see embed_ms_new",
+  "embed_ms_new": {
+    "n": 0,
+    "p50": null,
+    "p95": null
+  },
+  "modes": {
+    "keyword": {
+      "n": 46,
+      "errors": 0,
+      "recall_at_1": 0.08695652173913043,
+      "recall_at_5": 0.391304347826087,
+      "mrr": 0.21195652173913043,
+      "latency_ms_p50": 90,
+      "latency_ms_p95": 155,
+      "llm_tokens": 0,
+      "by_category": {
+        "docs": 0.25,
+        "how": 0.29411764705882354,
+        "locate": 0.36363636363636365,
+        "usage": 0.7
+      },
+      "by_repo": {
+        "pallets/itsdangerous": 0.3125,
+        "pallets/markupsafe": 0.6153846153846154,
+        "sindresorhus/ky": 0.29411764705882354
+      }
+    }
+  }
+}
