@@ -81,3 +81,20 @@
   Retrieval 7.7 s. Tracing showed the cause in one look.
 - Citation [1:72-146] was valid but 75 lines wide (earlier run: 138-153).
   -> eval must also measure citation WIDTH, not just validity.
+  ## Week 3 — Eval set and first results
+- Eval set: 50 questions (itsdangerous 18, markupsafe 14, ky 18), rules committed first.
+  Categories: 17 how, 11 locate, 10 usage, 8 docs, 4 negative.
+- Traps deliberately included: _int_to_bytes vs int_to_bytes, type stub vs real dumps,
+  isNetworkError in doc comments vs real logic, TimeoutError (15 throw sites) replaced by
+  one precise question. Dropped retryAfterStatusCodes (not in this ky version).
+- Limitation: markupsafe's fast path is in _speedups.c, not indexed (v1 scope); questions avoid it.
+- itsd-14 is close in topic to smoke-test Q1 (expiry) - docs file instead of code.
+- Free tier: 1,000 embedding TEXTS per day (not calls). ky needed 2 days; resume kept 800 -> 1800.
+- Query vectors cached: 46 embeddings per question set instead of 46 x modes; re-runs cost 0.
+- First run, keyword only: R@1 0.09, R@5 0.39, MRR 0.212, p50 90 ms, p95 155 ms, 0 errors.
+  Smoke test said 3/4 (75%) -> 4 hand-picked questions overstated quality ~2x.
+  By category R@5: usage 0.70, locate 0.36, how 0.29, docs 0.25.
+- Spot-checked 4 keyword misses by hand: all real (scorer OK). itsd-01 was a near miss
+  (hit ended at line 128, gold at 132). Tests, setup.py, bench.py often beat real answers.
+- Answer eval test (3 questions, keyword): when retrieval misses, the explainer says
+  found=false instead of guessing (itsd-01). Negative question correct. Judge passed obvious cases.
