@@ -4,11 +4,15 @@ from backend.app.onboarding.path import plan_reading
 
 FILES = [
     "README.md", "CHANGES.rst", ".github/x.md", "pyproject.toml",
+    "docs/conf.py", "vite.config.ts", "tests/__init__.py",
     "src/pkg/__init__.py", "src/pkg/core.py", "src/pkg/sub/util.py",
     "tests/test_core.py", "docs/index.rst",
 ]
 SIZES = {
     "README.md": 40,              # doc  -> 1 min  -> 5 (minimum)
+    "docs/conf.py": 56,           # config -> left out
+    "vite.config.ts": 20,         # config -> left out
+    "tests/__init__.py": 0,       # empty  -> left out
     "src/pkg/__init__.py": 20,    # code -> 1 min  -> 5
     "src/pkg/core.py": 200,       # code -> 10 min
     "src/pkg/sub/util.py": 60,    # code -> 3 min  -> 5
@@ -35,7 +39,8 @@ def test_reading_order():
 def test_noise_files_left_out():
     plan = _plan()
     everything = [p for day in _paths(plan) for p in day] + plan["skipped"]
-    for noise in ("CHANGES.rst", ".github/x.md", "pyproject.toml"):
+    for noise in ("CHANGES.rst", ".github/x.md", "pyproject.toml",
+                  "docs/conf.py", "vite.config.ts", "tests/__init__.py"):
         assert noise not in everything
 
 
@@ -53,11 +58,24 @@ def test_two_days_fill_in_order():
 
 
 def test_file_bigger_than_a_day_gets_own_day():
-    big = dict(SIZES, **{"src/pkg/core.py": 2000})   # 100 min
-    plan = _plan(days=3, hours=0.5, sizes=big)
+    big = dict(SIZES, **{"src/pkg/core.py": 2000})   # capped at 30 min, day is 15 min
+    plan = _plan(days=3, hours=0.25, sizes=big)
     assert _paths(plan)[1] == ["src/pkg/core.py"]
     assert plan["days"][1]["over_budget"] is True
     assert plan["days"][0]["over_budget"] is False
+
+
+def test_long_file_is_capped_and_marked_skim():
+    big = dict(SIZES, **{"src/pkg/core.py": 2000})   # 100 min if read fully
+    items = {it["path"]: it for d in _plan(sizes=big)["days"] for it in d["items"]}
+    assert items["src/pkg/core.py"]["minutes"] == 30 and items["src/pkg/core.py"]["skim"] is True
+    assert items["src/pkg/sub/util.py"]["skim"] is False
+
+
+def test_empty_entry_point_is_kept():
+    sizes = dict(SIZES, **{"src/pkg/__init__.py": 0})
+    second = _plan(sizes=sizes)["days"][0]["items"][1]
+    assert second["path"] == "src/pkg/__init__.py" and second["lines"] == 0
 
 
 def test_missing_size_uses_minimum():

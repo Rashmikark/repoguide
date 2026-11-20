@@ -1,7 +1,7 @@
 """Reading-order planner. Code decides WHICH files and in WHAT order; no LLM here.
 
-Reading speeds are ASSUMPTIONS (not measurements) and are returned in the result
-so the README can state them honestly.
+Reading speeds and the per-file cap are ASSUMPTIONS (not measurements) and are
+returned in the result so the README can state them honestly.
 """
 import math
 from dataclasses import asdict, dataclass
@@ -12,11 +12,14 @@ from backend.app.onboarding.facts import is_test_path
 CODE_LINES_PER_MINUTE = 20
 DOC_LINES_PER_MINUTE = 40
 MIN_MINUTES_PER_FILE = 5
+MAX_MINUTES_PER_FILE = 30          # longer files are planned as "skim"
 
 CODE_SUFFIXES = {".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}
 DOC_SUFFIXES = {".md", ".rst"}
 SKIP_STEMS = {"changes", "changelog", "history", "license", "licence",
               "contributing", "code_of_conduct", "security"}
+CONFIG_NAMES = {"conf.py", "setup.py", "noxfile.py", "fabfile.py", "gulpfile.js", "gruntfile.js"}
+CONFIG_ENDINGS = (".config.js", ".config.ts", ".config.mjs", ".config.cjs")
 GROUP_ORDER = ("readme", "entry", "core", "tests", "docs")
 
 MAX_DAYS = 30
@@ -29,11 +32,15 @@ class PlanItem:
     group: str
     lines: int
     minutes: int
+    skim: bool = False
 
 
 def _skip(path: str) -> bool:
     p = PurePosixPath(path)
     if any(part.startswith(".") for part in p.parts):
+        return True
+    name = p.name.lower()
+    if name in CONFIG_NAMES or name.endswith(CONFIG_ENDINGS):
         return True
     return p.stem.lower() in SKIP_STEMS
 
@@ -53,9 +60,11 @@ def _group(path: str, readme_path: str | None, entry_points: list[str]) -> str |
     return None
 
 
-def _minutes(path: str, lines: int) -> int:
+def _minutes(path: str, lines: int) -> tuple[int, bool]:
+    """Returns (planned minutes, skim). Files longer than the cap are skimmed."""
     rate = DOC_LINES_PER_MINUTE if PurePosixPath(path).suffix.lower() in DOC_SUFFIXES else CODE_LINES_PER_MINUTE
-    return max(MIN_MINUTES_PER_FILE, math.ceil(lines / rate))
+    full = max(MIN_MINUTES_PER_FILE, math.ceil(lines / rate))
+    return min(full, MAX_MINUTES_PER_FILE), full > MAX_MINUTES_PER_FILE
 
 
 def order_files(files, sizes, entry_points, readme_path) -> list[PlanItem]:
@@ -71,7 +80,10 @@ def order_files(files, sizes, entry_points, readme_path) -> list[PlanItem]:
         if g is None:
             continue
         lines = int(sizes.get(path, 0))
-        groups[g].append(PlanItem(path, g, lines, _minutes(path, lines)))
+        if lines == 0 and g not in ("readme", "entry"):
+            continue                 # empty file: nothing to read
+        minutes, skim = _minutes(path, lines)
+        groups[g].append(PlanItem(path, g, lines, minutes, skim))
 
     groups["entry"].sort(key=lambda it: entry_points.index(it.path))
     for g in ("core", "tests", "docs"):
@@ -116,5 +128,6 @@ def plan_reading(files, sizes, entry_points, readme_path, days: int, hours_per_d
             "code_lines_per_minute": CODE_LINES_PER_MINUTE,
             "doc_lines_per_minute": DOC_LINES_PER_MINUTE,
             "min_minutes_per_file": MIN_MINUTES_PER_FILE,
+            "max_minutes_per_file": MAX_MINUTES_PER_FILE,
         },
     }
