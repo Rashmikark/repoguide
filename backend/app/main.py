@@ -294,3 +294,8 @@ def _answer(repo: dict, req: AskRequest) -> dict:
         "llm_usage": info["llm_usage"],
         "trace_id": current_trace_id(),
     }
+
+# Onboarding routes (Week 4)
+from backend.app.api_onboarding import router as onboarding_router  # noqa: E402
+
+app.include_router(onboarding_router)
