@@ -8,9 +8,10 @@ from backend.app.llm import generate
 from backend.app.retrieval.vector_search import Hit
 from backend.app.tracing import trace_span
 
-# [n:...] where ... is one or more comma-separated lines or ranges: [2:142-149], [1:23-26,34]
+# [n:...] where ... is one or more comma-separated parts: [2:142-149], [1:23-26,34], [1:23-28, 1:34]
 CITE = re.compile(r"\[(\d+):([^\[\]]+)\]")
-PART = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$")
+# One part: "34", "23-26", or with its own source number "1:34", "2:110-120"
+PART = re.compile(r"^\s*(?:(\d+)\s*:\s*)?(\d+)\s*(?:-\s*(\d+)\s*)?$")
 
 PROMPT = """You answer questions about a code repository using ONLY the numbered sources below.
 
@@ -61,18 +62,20 @@ def _format_source(n: int, h: Hit) -> str:
 
 
 def check_citations(text: str, hits: list[Hit]) -> list[Citation]:
-    """Check every [n:...] citation. A list like [1:23-26,34] becomes one citation per part.
+    """Check every [n:...] citation. A list like [1:23-26,34] or [1:23-28, 1:34]
+    becomes one citation per part; a part may carry its own source number.
     Anything unparseable inside [n:...] is an INVALID citation - never silently skipped."""
     out: list[Citation] = []
     for m in CITE.finditer(text):
-        n = int(m.group(1))
+        first = int(m.group(1))
         for part in m.group(2).split(","):
             pm = PART.match(part)
             if not pm:
-                out.append(Citation(n, 0, 0, None, False, f"malformed citation {m.group(0)}"))
+                out.append(Citation(first, 0, 0, None, False, f"malformed citation {m.group(0)}"))
                 continue
-            start = int(pm.group(1))
-            end = int(pm.group(2) or start)
+            n = int(pm.group(1) or first)
+            start = int(pm.group(2))
+            end = int(pm.group(3) or start)
             if not 1 <= n <= len(hits):
                 out.append(Citation(n, start, end, None, False, "no such source"))
                 continue

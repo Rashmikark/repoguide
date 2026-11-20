@@ -32,7 +32,6 @@ def test_no_citations():
 
 
 def test_list_citation_is_split_and_each_part_checked():
-    # The exact shape Gemini produced in the ky overview: [1:23-26,34]
     cites = check_citations("Retries and types [2:110-120,140].", HITS)
     assert [(c.start, c.end, c.valid) for c in cites] == [(110, 120, True), (140, 140, True)]
 
@@ -45,3 +44,16 @@ def test_list_citation_with_one_bad_part():
 def test_malformed_citation_is_invalid_not_skipped():
     (c,) = check_citations("Weird [2:abc].", HITS)
     assert not c.valid and c.reason.startswith("malformed")
+
+
+def test_list_parts_may_repeat_source_number():
+    # The exact shape Gemini produced in the second ky overview: [1:23-28, 1:34]
+    cites = check_citations("Features [1:12-14, 1:18].", HITS)
+    assert [(c.source, c.start, c.end, c.valid) for c in cites] == [
+        (1, 12, 14, True), (1, 18, 18, True)]
+
+
+def test_list_parts_may_switch_source():
+    cites = check_citations("Both [1:12, 2:110-120].", HITS)
+    assert [(c.source, c.path, c.valid) for c in cites] == [
+        (1, "a.py", True), (2, "b.py", True)]

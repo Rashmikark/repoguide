@@ -98,3 +98,8 @@
   (hit ended at line 128, gold at 132). Tests, setup.py, bench.py often beat real answers.
 - Answer eval test (3 questions, keyword): when retrieval misses, the explainer says
   found=false instead of guessing (itsd-01). Negative question correct. Judge passed obvious cases.
+
+  ## Week 4 – citation parser fix (before any official answer eval)
+- Found while building the repo overview (ky): list citations like `[1:23-26,34]` were silently skipped, so they were counted neither valid nor invalid.
+- Fix: each comma part is checked separately; a part may repeat the source number (`[1:23-28, 1:34]`); anything unparseable is counted as an INVALID "malformed" citation.
+- Only the parser changed. The explainer prompt is unchanged. No official answer-eval result existed before this fix.
