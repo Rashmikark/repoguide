@@ -8,7 +8,9 @@ from backend.app.llm import generate
 from backend.app.retrieval.vector_search import Hit
 from backend.app.tracing import trace_span
 
-CITE = re.compile(r"\[(\d+):(\d+)(?:-(\d+))?\]")
+# [n:...] where ... is one or more comma-separated lines or ranges: [2:142-149], [1:23-26,34]
+CITE = re.compile(r"\[(\d+):([^\[\]]+)\]")
+PART = re.compile(r"^\s*(\d+)\s*(?:-\s*(\d+)\s*)?$")
 
 PROMPT = """You answer questions about a code repository using ONLY the numbered sources below.
 
@@ -59,17 +61,25 @@ def _format_source(n: int, h: Hit) -> str:
 
 
 def check_citations(text: str, hits: list[Hit]) -> list[Citation]:
+    """Check every [n:...] citation. A list like [1:23-26,34] becomes one citation per part.
+    Anything unparseable inside [n:...] is an INVALID citation - never silently skipped."""
     out: list[Citation] = []
     for m in CITE.finditer(text):
-        n, start = int(m.group(1)), int(m.group(2))
-        end = int(m.group(3) or start)
-        if not 1 <= n <= len(hits):
-            out.append(Citation(n, start, end, None, False, "no such source"))
-            continue
-        h = hits[n - 1]
-        ok = h.start_line <= start <= end <= h.end_line
-        reason = "" if ok else f"outside lines {h.start_line}-{h.end_line}"
-        out.append(Citation(n, start, end, h.path, ok, reason))
+        n = int(m.group(1))
+        for part in m.group(2).split(","):
+            pm = PART.match(part)
+            if not pm:
+                out.append(Citation(n, 0, 0, None, False, f"malformed citation {m.group(0)}"))
+                continue
+            start = int(pm.group(1))
+            end = int(pm.group(2) or start)
+            if not 1 <= n <= len(hits):
+                out.append(Citation(n, start, end, None, False, "no such source"))
+                continue
+            h = hits[n - 1]
+            ok = h.start_line <= start <= end <= h.end_line
+            reason = "" if ok else f"outside lines {h.start_line}-{h.end_line}"
+            out.append(Citation(n, start, end, h.path, ok, reason))
     return out
 
 

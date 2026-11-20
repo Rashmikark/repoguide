@@ -29,3 +29,19 @@ def test_unknown_source_is_invalid():
 
 def test_no_citations():
     assert check_citations("No brackets here.", HITS) == []
+
+
+def test_list_citation_is_split_and_each_part_checked():
+    # The exact shape Gemini produced in the ky overview: [1:23-26,34]
+    cites = check_citations("Retries and types [2:110-120,140].", HITS)
+    assert [(c.start, c.end, c.valid) for c in cites] == [(110, 120, True), (140, 140, True)]
+
+
+def test_list_citation_with_one_bad_part():
+    cites = check_citations("Mixed [1:12,25].", HITS)
+    assert [c.valid for c in cites] == [True, False]
+
+
+def test_malformed_citation_is_invalid_not_skipped():
+    (c,) = check_citations("Weird [2:abc].", HITS)
+    assert not c.valid and c.reason.startswith("malformed")
