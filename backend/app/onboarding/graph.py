@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from backend.app.onboarding.facts import load_repo_facts
+from backend.app.onboarding.issues_service import build_issues
 from backend.app.onboarding.overview import make_overview
 from backend.app.onboarding.path_service import build_path
 
@@ -22,7 +23,7 @@ class OnboardState(TypedDict, total=False):
     facts: dict
     overview: dict
     path: dict
-    issues: list
+    issues: dict
     quiz: list
     errors: Annotated[list[str], operator.add]
 
@@ -66,11 +67,17 @@ def make_path(state: OnboardState, config: RunnableConfig) -> dict:
         return {"path": {}, "errors": [_err("path", e)]}
 
 
-# Still stubs - replaced in Steps 21 and 22.
-def find_issues(state: OnboardState) -> dict:
-    return {"issues": []}
+def find_issues(state: OnboardState, config: RunnableConfig) -> dict:
+    facts = state.get("facts") or {}
+    if not facts:
+        return {"issues": {}, "errors": ["issues: skipped because facts are missing"]}
+    try:
+        return {"issues": build_issues(_conn(config), facts)}
+    except Exception as e:
+        return {"issues": {}, "errors": [_err("issues", e)]}
 
 
+# Still a stub - replaced in Step 22.
 def make_quiz(state: OnboardState) -> dict:
     return {"quiz": []}
 
